@@ -1,8 +1,8 @@
-## Interface: 100200
+## Interface: 100250
 ## Title: Action Bar Profiles
-## Author: silencer2k@gmail.com
+## Author: Rhodan
 ## SavedVariables: ActionBarProfilesDBv3
-## Version: 10.0.0-2
+## Version: 10.2.5-1
 
 ActionBarProfiles.xml
 
