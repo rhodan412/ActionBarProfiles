@@ -1,0 +1,32 @@
+## Interface: 100200
+## Title: Action Bar Profiles
+## Author: silencer2k@gmail.com
+## SavedVariables: ActionBarProfilesDBv3
+## Version: 10.0.0-2
+
+ActionBarProfiles.xml
+
+locales\enUS.lua
+locales\ruRU.lua
+locales\deDE.lua
+locales\esES.lua
+locales\esMX.lua
+locales\frFR.lua
+locales\itIT.lua
+locales\koKR.lua
+locales\ptBR.lua
+locales\zhCN.lua
+locales\zhTW.lua
+
+ActionBarProfiles.lua
+Const.lua
+Config.lua
+Dialogs.lua
+Save.lua
+Restore.lua
+
+GUI.xml
+GUI.lua
+GUISave.xml
+GUISave.lua
+Button.xml
