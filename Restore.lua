@@ -4,7 +4,7 @@ local L = LibStub("AceLocale-3.0"):GetLocale(addonName)
 local DEBUG = "|cffff0000Debug:|r "
 
 local S2KFI = LibStub("LibS2kFactionalItems-1.0")
-
+ABP = ABP or {}
 function addon:GetProfiles(filter, case)
     local list = self.db.profile.list
     local sorted = {}
@@ -55,7 +55,8 @@ function addon:UseProfile(profile, check, cache)
     end
 
     if not profile.skipTalents then
-        -- self:RestoreTalents(profile, check, cache, res)
+        print("Debug: Calling RestoreTalents with profile:", profile.name)
+        self:RestoreTalents(profile, check, cache, res)
     end
 
     if not profile.skipPvpTalents then
@@ -211,23 +212,140 @@ function addon:RestoreMacros(profile, check, cache, res)
     return fail, total
 end
 
-function addon:RestoreTalents(profile, check, cache, res)
-    local fail, total = 0, 0
+function ABP:DebugPrintTalents(classProfile, listProfile)
+    local classProfiles = self.db and self.db.profiles[classProfile]
+    if not classProfiles then
+        print("Class profile not found: " .. tostring(classProfile))
+        return
+    end
 
-    -- hack: update cache
+    local profile = classProfiles.list and classProfiles.list[listProfile]
+    if not profile or not profile.talents then
+        print("List profile not found in class profile: " .. tostring(listProfile))
+        return
+    end
+
+    print("Talents in profile: " .. listProfile)
+    for i, talentInfo in ipairs(profile.talents) do
+        print("Talent " .. i .. ": " .. talentInfo.spellName .. " (ID: " .. talentInfo.spellID .. ")")
+    end
+end
+
+SLASH_ABPDEBUG1 = '/abpdebug'
+
+SlashCmdList["ABPDEBUG"] = function(input)
+    local listProfile = input:trim()
+    if listProfile and listProfile ~= "" then
+        -- Assuming PALADIN as default class profile for this example
+        local classProfile = "PALADIN"
+        ABP:DebugPrintTalents(classProfile, listProfile)
+    else
+        print("You must provide a list profile name.")
+    end
+end
+
+
+
+local function OnAddonLoaded(self, event, arg1)
+    if arg1 == "ActionBarProfiles" then  -- Replace with the actual name of your addon
+        -- Check if ActionBarProfilesDBv3 is available
+        if ActionBarProfilesDBv3 then
+            ABP.db = ActionBarProfilesDBv3
+            print("ActionBarProfilesDBv3 assigned to ABP.db")
+
+            -- Initialize the talents table
+            ActionBarProfilesDBv3.talentsByProfile = ActionBarProfilesDBv3.talentsByProfile or {}
+            print("Initialized talentsByProfile in ActionBarProfilesDBv3")
+
+            -- Call your UpdateTalentsTable function here if needed
+            if addon.UpdateTalentsTable then
+                addon:UpdateTalentsTable()
+            else
+                --print("Error: UpdateTalentsTable function not found.")
+            end
+        else
+            --print("Error: ActionBarProfilesDBv3 is not available.")
+        end
+    end
+end
+
+local eventFrame = CreateFrame("Frame")
+eventFrame:RegisterEvent("ADDON_LOADED")
+eventFrame:SetScript("OnEvent", OnAddonLoaded)
+
+-- -- Function to get talents for a given class and profile name
+-- function GetTalentsForProfile(class, profileName)
+	-- ActionBarProfilesDBv3.talentsByProfile = ActionBarProfilesDBv3.talentsByProfile or {}
+    -- if not ActionBarProfilesDBv3 or not ActionBarProfilesDBv3.profiles or not ActionBarProfilesDBv3.profiles[class] then
+        -- return nil
+    -- end
+
+    -- local classProfiles = ActionBarProfilesDBv3.profiles[class]
+    -- local profile = classProfiles.list and classProfiles.list[profileName]
+
+    -- if profile and profile.talents then
+        -- return profile.talents
+    -- end
+
+    -- return nil
+-- end
+
+-- -- Example usage
+-- local class = "PALADIN"
+-- local profileName = "Paladin-Ret"
+-- local talents = GetTalentsForProfile(class, profileName)
+
+-- if talents then
+    -- for _, talent in ipairs(talents) do
+        -- print("Talent ID:", talent.entryID)
+        -- print("Talent Spell ID:", talent.spellID)
+        -- print("Talent Spell Name:", talent.spellName)
+        -- -- Add code here to handle talent (e.g., learning the talent if not already learned)
+    -- end
+-- else
+    -- print("No talents found for", class, profileName)
+-- end
+
+
+
+function addon:RestoreTalents(profile, check, cache, res)
+    print("Debug: RestoreTalents called with profile:", profile.name)
+    local fail, total = 0, 0
     local talents = { id = {}, name = {} }
     local rest = self.auraState or IsResting()
 
-    local tier
+    -- Apply talents from the profile using the new API method
+    if not check then
+        local specIndex = GetSpecialization()
+        if specIndex then
+            local specID = select(1, GetSpecializationInfo(specIndex))
+            local treeID = C_ClassTalents.GetTraitTreeForSpec(specID)
+            if treeID then
+                configID = C_Traits.GetConfigIDByTreeID(treeID)
+                print("Debug: Obtained configID -", configID)
+            else
+                print("Error: Invalid treeID")
+            end
+        else
+            print("Error: Unable to obtain specialization information")
+        end
+
+        if configID then
+            -- Call ApplyTalentsFromProfile function
+            ApplyTalentsFromProfile(profile, configID)
+        else
+            print("Error: configID not found.")
+        end
+    end
+	
     for tier = 1, MAX_TALENT_TIERS do
         local link = profile.talents[tier]
-        if link then
-            -- has action
-            local ok
-            total = total + 1
-
-            local data, name = link:match("^|c.-|H(.-)|h%[(.-)%]|h|r$")
-            link = link:gsub("|Habp:.+|h(%[.+%])|h", "%1")
+		print("Debug: Processing Talent - Tier:", tier, "Link:", link)
+		if type(link) == "string" then
+			local ok
+			total = total + 1
+			local data, name = link:match("^|c.-|H(.-)|h%[(.-)%]|h|r$")
+			link = link:gsub("|Habp:.+|h(%[.+%])|h", "%1")
 
             if data then
                 local type, sub = strsplit(":", data)
@@ -235,36 +353,50 @@ function addon:RestoreTalents(profile, check, cache, res)
 
                 if type == "talent" then
                     local found = self:GetFromCache(cache.allTalents[tier], id, name, not check and link)
+                    print("Debug: Found Talent - ID:", id, "Found:", found)
                     if found then
                         if self:GetFromCache(cache.talents, id) or rest or select(2, GetTalentTierInfo(tier, 1)) == 0 then
                             ok = true
-
-                            -- hack: update cache
                             self:UpdateCache(talents, found, id, select(2, GetTalentInfoByID(id)))
-
                             if not check then
+                                print("Debug: Attempting to learn Talent - Tier:", tier, "ID:", id)
                                 LearnTalent(found)
                             end
                         else
+                            print("Debug: Cannot learn Talent now - Tier:", tier, "ID:", id, "Resting State:", rest, "Talent Available:", select(2, GetTalentTierInfo(tier, 1)))
                             self:cPrintf(not check, L.msg_cant_learn_talent, link)
                         end
                     else
+                        print("Debug: Talent not found in cache - Tier:", tier, "ID:", id)
                         self:cPrintf(not check, L.msg_talent_not_exists, link)
                     end
                 else
+                    print("Debug: Invalid talent link type - Tier:", tier, "Link:", link)
                     self:cPrintf(not check, L.msg_bad_link, link)
                 end
             else
+                print("Debug: Bad link format - Tier:", tier, "Link:", link)
                 self:cPrintf(not check, L.msg_bad_link, link)
             end
 
             if not ok then
                 fail = fail + 1
             end
+        else
+            print("Debug: Link is not a string - Tier:", tier, "Link:", tostring(link))
+
+            -- Debugging logic for table links
+            if type(link) == "table" then
+                -- Print the content of the table for debugging
+                for key, value in pairs(link) do
+                    --print("Key:", key, "Value:", value)
+                end
+                -- Additional logic to handle table type links
+                -- You will need to update this part based on the structure of the table
+            end
         end
     end
 
-    -- hack: update cache
     cache.talents = talents
 
     if res then
@@ -274,6 +406,85 @@ function addon:RestoreTalents(profile, check, cache, res)
 
     return fail, total
 end
+
+
+function ApplyTalentsFromProfile(profile, configID)
+	print("Debug: Running ApplyTalentsFromProfile with configID:", configID)
+    -- Ensure profile and configID are valid
+    if not profile or not profile.talents or not configID then
+        print("Invalid profile or configuration ID.")
+        return
+    end
+
+    -- Apply talents from the profile
+    for _, talentInfo in ipairs(profile.talents) do
+        if talentInfo.ranksPurchased > 0 then
+            print("Debug: Applying talent:", talentInfo.spellName, "ID:", talentInfo.spellID, "NodeID:", talentInfo.nodeID)
+
+            -- Check if the talent is a selection node or a regular node
+            if talentInfo.isSelectionNode then
+                -- Apply selection node
+                local selectSuccess = C_Traits.SetSelection(configID, talentInfo.nodeID, talentInfo.entryID)
+                if not selectSuccess then
+                    print("Failed to select talent:", talentInfo.spellName)
+                end
+            else
+                -- Purchase rank for regular nodes
+                local purchaseSuccess = C_Traits.PurchaseRank(configID, talentInfo.nodeID)
+                if not purchaseSuccess then
+                    print("Failed to purchase talent:", talentInfo.spellName)
+                end
+            end
+        end
+    end
+
+    -- Commit the changes
+    local commitSuccess = C_Traits.CommitConfig(configID)
+    if not commitSuccess then
+        print("There was an error committing the talent configuration.")
+    end
+end
+
+
+
+-- PlayerTalentFrameTalents
+function PlayerTalentFrameTalent_OnClick(self, button)
+	if ( selectedSpec and (activeSpec == selectedSpec)) then
+        local talentID = self:GetID()
+		local _, _, _, _, available, _, _, _, _, known = GetTalentInfoByID(talentID, specs[selectedSpec].talentGroup, true);
+		if ( available and not known and button == "LeftButton") then
+            return LearnTalent(talentID);
+		end
+	end
+	return false;
+end
+
+
+function addon:LearnTalentsFromDB(profileName)
+    local profile = self.db.profile.list[profileName]
+    if not profile or not profile.talents then return end
+
+    for _, talentData in ipairs(profile.talents) do
+        if talentData and talentData.nodeID and talentData.ranksPurchased > 0 then
+            local talentID = talentData.nodeID
+            -- Check if the talent is already learned
+            local _, _, _, isSelected = GetTalentInfoByID(talentID, 1)
+            if not isSelected then
+                LearnTalent(talentID)
+            else
+                print("Talent already learned:", talentData.spellName, "ID:", talentID)
+            end
+        end
+    end
+end
+
+
+
+
+
+
+
+
 
 function addon:RestorePvpTalents(profile, check, cache, res)
     if not profile.pvpTalents then
