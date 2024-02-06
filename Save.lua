@@ -197,10 +197,11 @@ function addon:SaveActions(profile)
     local pvpTalentIDs, pvpTalents, pvpTalentSpells = {}, {}, {}
 
     pvpTalentIDs = C_SpecializationInfo.GetAllSelectedPvpTalentIDs()
-
+	
     local tier
     for tier = 1, #pvpTalentIDs do
         pvpTalents[tier] = GetPvpTalentLink(pvpTalentIDs[tier])
+		print("pvpTalents [Tier] are: " .. pvpTalents[tier])
         local id = select(6, GetPvpTalentInfoByID(pvpTalentIDs[tier]))
         pvpTalentSpells[tier] = GetSpellLink(id)
     end

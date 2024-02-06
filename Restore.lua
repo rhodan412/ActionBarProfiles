@@ -59,7 +59,7 @@ function addon:UseProfile(profile, check, cache)
     end
 
     if not profile.skipPvpTalents then
-        -- self:RestorePvpTalents(profile, check, cache, res)
+        self:RestorePvpTalents(profile, check, cache, res)
     end
 
     if not profile.skipActions then
@@ -281,16 +281,12 @@ function addon:RestorePvpTalents(profile, check, cache, res)
     end
 
     local fail, total = 0, 0
-
-    -- hack: update cache
     local pvpTalents = { id = {}, name = {} }
     local rest = self.auraState or IsResting()
 
-    local tier
-    for tier = 1, 3 do -- MAX_PVP_TALENT_TIERS does not exist
+    for tier = 1, 3 do
         local link = profile.pvpTalents[tier]
         if link then
-            -- has action
             local ok
             total = total + 1
 
@@ -306,8 +302,6 @@ function addon:RestorePvpTalents(profile, check, cache, res)
                     if found then
                         if self:GetFromCache(cache.pvpTalents, id) or rest or select(2, GetPvpTalentInfoByID(id, 1)) == 0 then
                             ok = true
-
-                            -- hack: update cache
                             self:UpdateCache(pvpTalents, found, id, select(2, GetPvpTalentInfoByID(id)))
                             if not check then
                                 LearnPvpTalent(found, tier)
@@ -331,7 +325,6 @@ function addon:RestorePvpTalents(profile, check, cache, res)
         end
     end
 
-    -- hack: update cache
     cache.pvpTalents = pvpTalents
 
     if res then
@@ -341,6 +334,8 @@ function addon:RestorePvpTalents(profile, check, cache, res)
 
     return fail, total
 end
+
+
 
 --
 --
@@ -951,7 +946,7 @@ function addon:MakeCache()
 
     self:PreloadTalents(cache.talents, cache.allTalents)
     self:PreloadPvpTalents(cache.pvpTalents, cache.allPvpTalents)
---    self:PreloadPvpTalentSpells(cache.spells)
+    --self:PreloadPvpTalentSpells(cache.spells)
 
     self:PreloadSpecialSpells(cache.spells)
     self:PreloadSpellbook(cache.spells, cache.flyouts)

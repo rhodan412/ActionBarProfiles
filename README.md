@@ -15,4 +15,4 @@ Chat commands
 Links
 -----
 
-* The latest release is available on [[http://www.curse.com/addons/wow/action-bar-profiles]([https://legacy.curseforge.com/wow/addons/action-bar-profiles-fan-update)]
+* The latest release is available on [[https://legacy.curseforge.com/wow/addons/action-bar-profiles-fan-update]([https://legacy.curseforge.com/wow/addons/action-bar-profiles-fan-update)]
