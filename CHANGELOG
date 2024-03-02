@@ -1,3 +1,6 @@
+10.2.5.3
+ - Fixes to talents restoring from profiles (Known Issue: talents swap automatically, when player clicks the Action Bars icon within their Character Panel, to the most applicable talent. If multiple specs within same spec, it will bounce between the two of them when frame is open)
+
 10.2.5.2
  - Fixes to PvP talent restoration (spec/class talent restoration is a known issue)
 
