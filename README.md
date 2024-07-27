@@ -1,5 +1,5 @@
-Action Bar Profiles
-===================
+Action Bar Profiles (Fan Update)
+================================
 
 Add-on that allows you to setup and quickly switch between different profiles of your action bars, talents, macros and key bindings.
 
@@ -15,4 +15,5 @@ Chat commands
 Links
 -----
 
-* The latest release is available on [[https://legacy.curseforge.com/wow/addons/action-bar-profiles-fan-update]([https://legacy.curseforge.com/wow/addons/action-bar-profiles-fan-update)]
+* The latest release is available on [CurseForge](https://www.curseforge.com/wow/addons/action-bar-profiles-fan-update)
+* This code is a fork of [Action Bar Profiles (Saver) add-on](https://www.curseforge.com/wow/addons/action-bar-profiles) [GitHub repo from Silencer2k](https://github.com/Silencer2K/wow-action-bar-profiles)
