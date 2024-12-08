@@ -100,10 +100,25 @@ function addon:UseProfile(profile, check, cache)
         self:UpdateGUI()
     end
 
+    self:RefreshMacroIcons()
+
     -- Return the number of failed and total restoration attempts
     return res.fail, res.total
 end
 
+-- if a macro starts with "#showtooltip", and has no argument, reset icon to the question mark so they can be dynamic
+-- More info about #showtooltip here: https://warcraft.wiki.gg/wiki/MACRO_metashowtooltip
+function addon:RefreshMacroIcons()
+    for index = 1, MAX_ACCOUNT_MACROS + MAX_CHARACTER_MACROS do
+        name, icon, body = GetMacroInfo(index)
+        if body then
+            local bodyWithoutSpaces = string.gsub(body, "%s+", "")
+            if string.sub(bodyWithoutSpaces, 0, 13) == "#showtooltip/" then
+                index = EditMacro(index, name, 134400, body) -- 134400 is the question mark icon
+            end
+        end
+     end
+end
 
 -- Function to restore macros based on a given profile, with an option to check without actually applying the changes
 function addon:RestoreMacros(profile, check, cache, res)
