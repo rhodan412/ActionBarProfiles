@@ -963,7 +963,7 @@ function addon:RestoreActions(profile, check, cache, res)
                         self:cPrintf(not ok and not check, L.msg_spell_not_exists, link)
 
                     elseif sub == "macro" then
-                        local found = self:GetFromCache(cache.macros, self:PackMacro(self:DecodeLink(p2)), name, not check and link)
+                        local found = p2 and self:GetFromCache(cache.macros, self:PackMacro(self:DecodeLink(p2)), name, not check and link)
                         if found then
                             ok = true
                             if not check then
