@@ -2,6 +2,20 @@ local addonName, addon = ...
 
 local L = LibStub("AceLocale-3.0"):GetLocale(addonName)
 local DEBUG = "|cffff0000Debug:|r "
+local GetSpecialization = C_SpecializationInfo.GetSpecialization
+local GetSpecializationInfo = C_SpecializationInfo.GetSpecializationInfo
+local GetPvpTalentInfoByID = C_SpecializationInfo.GetPvpTalentInfoByID or _G.GetPvpTalentInfoByID
+local LearnPvpTalent = C_SpecializationInfo.LearnPvpTalent or C_SpecializationInfo.SetPvpTalent or _G.LearnPvpTalent
+local PickupPvpTalent = C_SpecializationInfo.PickupPvpTalent or _G.PickupPvpTalent
+
+-- Keep dependent talent purchases ordered while avoiding a noticeable pause for
+-- each node in a full profile restore.
+local TALENT_RESTORE_DELAY = 0.02
+
+-- These globals are no longer exported by the Retail client, although macro
+-- indices still reserve slots 1-120 for account macros.
+local MAX_ACCOUNT_MACROS = _G.MAX_ACCOUNT_MACROS or 120
+local MAX_CHARACTER_MACROS = _G.MAX_CHARACTER_MACROS or 18
 
 ---@type table
 _G.ActionBarProfilesDBv3 = _G.ActionBarProfilesDBv3 or {}
@@ -92,7 +106,7 @@ function addon:UseProfile(profile, check, cache)
     end
 
     if not profile.skipBindings then
-        --self:RestoreBindings(profile, check, cache, res)
+        self:RestoreBindings(profile, check, cache, res)
     end
 
     -- Update the GUI if not in check mode
@@ -395,19 +409,24 @@ function addon:AreTalentsMatching(profile)
         for _, nodeID in ipairs(nodes) do
             local nodeInfo = C_Traits.GetNodeInfo(configID, nodeID)
             local profileTalent = profileTalentLookup[nodeID]
+            local activeEntryInfo = nodeInfo and nodeInfo.activeEntry
+                and C_Traits.GetEntryInfo(configID, nodeInfo.activeEntry.entryID)
+            local isSubTreeSelection = activeEntryInfo and activeEntryInfo.subTreeID
 
             -- Skip free talents, as they should not be unlearned or learned
             if nodeInfo and not (nodeInfo.currentRank > 0 and nodeInfo.ranksPurchased == 0 and not nodeInfo.canPurchaseRank) then
                 if profileTalent then
                     -- Compare entryIDs if it's a selection node
-                    if profileTalent.isSelectionNode and nodeInfo.activeEntry and nodeInfo.activeEntry.entryID ~= profileTalent.entryID then
+                    if profileTalent.isSelectionNode and (not nodeInfo.activeEntry or nodeInfo.activeEntry.entryID ~= profileTalent.entryID) then
                         -- Mismatch found: Active selection differs from profile
-                        table.insert(talentsToUnlearn, {
-                            nodeInfo = nodeInfo,
-                            rank = nodeInfo.currentRank,
-                            spellID = nodeInfo.activeEntry and nodeInfo.activeEntry.spellID,
-                            treeType = (nodeInfo.posX < 10000) and "Class" or "Spec"
-                        })
+                        if nodeInfo.currentRank > 0 then
+                            table.insert(talentsToUnlearn, {
+                                nodeInfo = nodeInfo,
+                                rank = nodeInfo.currentRank,
+                                spellID = nodeInfo.activeEntry and nodeInfo.activeEntry.spellID,
+                                treeType = (nodeInfo.posX < 10000) and "Class" or "Spec"
+                            })
+                        end
 
                         table.insert(talentsToLearn, {
                             nodeID = nodeID,
@@ -419,8 +438,8 @@ function addon:AreTalentsMatching(profile)
                             spellID = profileTalent.spellID
                         })
 
-                        -- Log mismatch for debugging
-                        print(string.format("Mismatch detected: NodeID %d - Active EntryID %d, Expected EntryID %d", nodeID, nodeInfo.activeEntry.entryID, profileTalent.entryID))
+                        -- Debug: mismatch details intentionally suppressed during normal restores.
+                        -- print(string.format("Mismatch detected: NodeID %d - Active EntryID %s, Expected EntryID %d", nodeID, nodeInfo.activeEntry and nodeInfo.activeEntry.entryID or "none", profileTalent.entryID))
                     elseif nodeInfo.currentRank < profileTalent.ranksPurchased then
                         -- Handle normal nodes where ranks don't match
                         table.insert(talentsToLearn, {
@@ -433,7 +452,7 @@ function addon:AreTalentsMatching(profile)
                             spellID = profileTalent.spellID
                         })
                     end
-                elseif nodeInfo.currentRank > 0 then
+                elseif nodeInfo.currentRank > 0 and not isSubTreeSelection then
                     -- Talent is active but not in the profile
                     table.insert(talentsToUnlearn, {
                         nodeInfo = nodeInfo,
@@ -481,107 +500,10 @@ function addon:RestoreTalents(profile, check, cache, res)
         return
     end
 
-    -- Check if the number of talents to unlearn is 5 or greater
-    if #talentsToUnlearn >= 5 then
-        self:FixRestoreTalents(profile)
-        return
-    end
-
-    -- Function to verify that a talent node has been successfully unlearned
-    local function VerifyTalentUnlearned(nodeID)
-        local nodeInfo = C_Traits.GetNodeInfo(configID, nodeID)
-        return nodeInfo and nodeInfo.currentRank == 0
-    end
-
-    -- Function to process learning talents with delay
-    local function LearnTalentWithDelay(index)
-        if index > #talentsToLearn then
-            local commitSuccess = C_ClassTalents.CommitConfig(configID)
-            if not commitSuccess then
-                --print("There was an error committing the talent configuration.")
-            else
-                --print("Talent configuration committed successfully.")
-            end
-
-            -- Recheck talents after learning to ensure they match the profile
-            local talentsMatchAfterLearn, _, _ = self:AreTalentsMatching(profile)
-            if not talentsMatchAfterLearn then
-                self:FixRestoreTalents(profile)
-            end
-
-            if PlayerSpellsFrame then
-                HideUIPanel(PlayerSpellsFrame)
-                ShowUIPanel(PlayerSpellsFrame)
-            end
-            return
-        end
-
-        local nodeData = talentsToLearn[index]
-        local success = false
-
-        if nodeData.isSelectionNode then
-            success = C_Traits.SetSelection(configID, nodeData.nodeID, nodeData.entryID)
-            --print("Setting selection for node: " .. nodeData.nodeID .. " EntryID: " .. nodeData.entryID)
-        else
-            success = C_Traits.PurchaseRank(configID, nodeData.nodeID)
-            --print("Purchasing rank for node: " .. nodeData.nodeID .. " Success: " .. tostring(success))
-        end
-
-        if not success then
-            --print("Unable to learn talent for node: " .. nodeData.nodeID)
-        end
-
-        C_Timer.After(0.1, function()
-            LearnTalentWithDelay(index + 1)
-        end)
-    end
-
-    -- Unlearn talents with verification and delay
-    local function UnlearnTalentsWithDelay(index)
-        if index > #talentsToUnlearn then
-            -- All unlearn operations completed, proceed to learn talents
-            C_Timer.After(0.5, function() -- Small delay before starting to learn talents
-                LearnTalentWithDelay(1)
-            end)
-            return
-        end
-
-        local nodeData = talentsToUnlearn[index]
-
-        -- Check if it's a free talent; if so, skip it
-        if nodeData.nodeInfo.isFree then
-            --print("Skipping unlearning free talent node: " .. nodeData.nodeInfo.ID)
-            UnlearnTalentsWithDelay(index + 1)
-            return
-        end
-
-        print("Unlearning talent node: " .. nodeData.nodeInfo.ID)
-        local success = C_Traits.RefundRank(configID, nodeData.nodeInfo.ID, true)
-
-        -- Verify the unlearn operation
-        C_Timer.After(0.1, function()
-            if not VerifyTalentUnlearned(nodeData.nodeInfo.ID) then
-                --print("Failed to unlearn talent for node: " .. nodeData.nodeInfo.ID .. ". Attempting again...")
-                success = C_Traits.RefundRank(configID, nodeData.nodeInfo.ID, true)
-                C_Timer.After(0.1, function()
-                    if VerifyTalentUnlearned(nodeData.nodeInfo.ID) then
-                        --print("Successfully unlearned talent for node: " .. nodeData.nodeInfo.ID)
-                        UnlearnTalentsWithDelay(index + 1)
-                    else
-                        --print("Failed again to unlearn talent for node: " .. nodeData.nodeInfo.ID)
-                        self:FixRestoreTalents(profile)
-                        return
-                    end
-                end)
-            else
-                print("Successfully unlearned talent for node: " .. nodeData.nodeInfo.ID)
-                UnlearnTalentsWithDelay(index + 1)
-            end
-        end)
-    end
-
-    -- Start unlearning talents that should be removed
-    UnlearnTalentsWithDelay(1)
+    -- A full restore is required for multi-rank choice nodes.  Selecting their
+    -- entry alone only grants the first rank; the remaining ranks must then be
+    -- purchased in dependency order.
+    self:FixRestoreTalents(profile)
 end
 
 
@@ -621,8 +543,12 @@ function addon:FixRestoreTalents(profile)
         end
     end
 
-    -- Sort the talents by their position in the tree (posY and posX)
+    -- Hero sub-tree selections must be restored before the nodes inside those
+    -- sub-trees become available.  Then process each tree from top to bottom.
     table.sort(profile.talents, function(a, b)
+        if a.isSubTreeSelection ~= b.isSubTreeSelection then
+            return a.isSubTreeSelection
+        end
         return a.posY < b.posY or (a.posY == b.posY and a.posX < b.posX)
     end)
 
@@ -652,7 +578,7 @@ function addon:FixRestoreTalents(profile)
         --if nodeInfo and nodeInfo.currentRank > 0 and nodeInfo.ranksPurchased == 0 and not nodeInfo.canPurchaseRank then
         if nodeInfo and nodeInfo.isFree then
             --print("Skipping free talent node: " .. talent.nodeID)
-            C_Timer.After(0.1, function()
+            C_Timer.After(TALENT_RESTORE_DELAY, function()
                 LearnTalentWithDelay(index + 1)
             end)
             return
@@ -662,31 +588,31 @@ function addon:FixRestoreTalents(profile)
             --print("Processing node: " .. talent.nodeID .. " Current Rank: " .. nodeInfo.currentRank .. " Max Ranks: " .. nodeInfo.maxRanks)
 
             if nodeInfo.isAvailable and nodeInfo.isVisible and nodeInfo.meetsEdgeRequirements then
-                local ranksPurchased = 0
-                while ranksPurchased < talent.ranksPurchased do
-                    local success = false
-
-                    if talent.isSelectionNode then
-                        -- Check if the selected entry is different from the profile's entry
-                        if nodeInfo.activeEntry and nodeInfo.activeEntry.entryID ~= talent.entryID then
-                            -- Change to the desired selection in the profile
-                            success = C_Traits.SetSelection(configID, talent.nodeID, talent.entryID)
-                            -- Debug output
-                            print(string.format("Switching choice node to entryID %d for nodeID %d", talent.entryID, talent.nodeID))
-                        else
-                            -- If already selected, consider it successful
-                            success = true
-                        end
-                    else
-                        success = C_Traits.PurchaseRank(configID, talent.nodeID)
-                    end
-
+                if talent.isSelectionNode and (not nodeInfo.activeEntry or nodeInfo.activeEntry.entryID ~= talent.entryID) then
+                    local success = C_Traits.SetSelection(configID, talent.nodeID, talent.entryID)
                     if not success then
+                        print("Unable to select talent entry for node: " .. talent.nodeID)
+                    else
+                        -- print(string.format("Switching choice node to entryID %d for nodeID %d", talent.entryID, talent.nodeID))
+                    end
+                end
+
+                -- SetSelection grants the first rank of a choice node.  Refresh
+                -- its state and purchase every remaining saved rank normally.
+                nodeInfo = C_Traits.GetNodeInfo(configID, talent.nodeID)
+                local currentRank = nodeInfo and nodeInfo.currentRank or 0
+                while currentRank < talent.ranksPurchased do
+                    if not C_Traits.PurchaseRank(configID, talent.nodeID) then
                         print("Unable to learn talent for node: " .. talent.nodeID)
                         break
-                    else
-                        ranksPurchased = ranksPurchased + 1
                     end
+
+                    nodeInfo = C_Traits.GetNodeInfo(configID, talent.nodeID)
+                    local newRank = nodeInfo and nodeInfo.currentRank or currentRank
+                    if newRank <= currentRank then
+                        break
+                    end
+                    currentRank = newRank
                 end
             else
                 print("Prerequisites not met for talent or node not available: " .. talent.nodeID)
@@ -696,7 +622,7 @@ function addon:FixRestoreTalents(profile)
         end
 
         -- Schedule the next talent to be learned after a short delay
-        C_Timer.After(0.1, function()
+        C_Timer.After(TALENT_RESTORE_DELAY, function()
             LearnTalentWithDelay(index + 1)
         end)
     end
@@ -734,23 +660,8 @@ function addon:LearnTalentsFromDB(profileName)
     -- If the profile or its talents data is not available, exit the function
     if not profile or not profile.talents then return end
 
-    -- Iterate through the talents stored in the profile
-    for _, talentData in ipairs(profile.talents) do
-        -- Ensure that the talent data is valid, with a valid nodeID and ranksPurchased > 0
-        if talentData and talentData.nodeID and talentData.ranksPurchased > 0 then
-            local talentID = talentData.nodeID  -- Assign the nodeID to talentID for processing
-
-            -- Check if the talent is already learned by querying talent information
-            local _, _, _, isSelected = GetTalentInfoByID(talentID, 1)
-            if not isSelected then
-                -- If the talent is not already learned, proceed to learn it
-                LearnTalent(talentID)
-            else
-                -- If the talent is already learned, print a message indicating this
-                print("Talent already learned:", talentData.spellName, "ID:", talentID)
-            end
-        end
-    end
+    -- Talent ranks are managed through the active trait configuration in Retail.
+    self:FixRestoreTalents(profile)
 end
 
 
@@ -1709,25 +1620,26 @@ end
 
 -- Preloads the player's selected talents and all available talents into the cache.
 function addon:PreloadTalents(talents, all)
-    -- Iterate through all talent tiers (rows).
-    for tier = 1, MAX_TALENT_TIERS do
-        -- Initialize the cache for each tier if it doesn't already exist.
-        all[tier] = all[tier] or { id = {}, name = {} }
+    local configID = C_ClassTalents.GetActiveConfigID()
+    local configInfo = configID and C_Traits.GetConfigInfo(configID)
+    if not configInfo then return end
 
-        -- Check if there are talents available in this tier.
-        if GetTalentTierInfo(tier, 1) then
-            -- Iterate through all talent columns (choices in each tier).
-            for column = 1, NUM_TALENT_COLUMNS do
-                -- Retrieve information about the talent in this tier and column.
-                local id, name, _, selected = GetTalentInfo(tier, column, 1)
-
-                -- If the talent is selected, update the cache for selected talents.
-                if selected then
-                    self:UpdateCache(talents, id, id, name)
+    for _, treeID in ipairs(configInfo.treeIDs) do
+        all[treeID] = all[treeID] or { id = {}, name = {} }
+        for _, nodeID in ipairs(C_Traits.GetTreeNodes(treeID)) do
+            local nodeInfo = C_Traits.GetNodeInfo(configID, nodeID)
+            for _, entryID in ipairs(nodeInfo and nodeInfo.entryIDs or {}) do
+                local entryInfo = C_Traits.GetEntryInfo(configID, entryID)
+                -- Some Retail 12.1 talent entries (for example hero sub-tree selectors)
+                -- are structural entries and do not have a trait definition.
+                local definitionInfo = entryInfo and entryInfo.definitionID
+                    and C_Traits.GetDefinitionInfo(entryInfo.definitionID)
+                local spellID = definitionInfo and definitionInfo.spellID
+                local spellInfo = spellID and C_Spell.GetSpellInfo(spellID)
+                if spellInfo then
+                    self:UpdateCache(all[treeID], spellID, spellID, spellInfo.name)
+                    self:UpdateCache(talents, spellID, spellID, spellInfo.name)
                 end
-
-                -- Update the cache for all talents in this tier.
-                self:UpdateCache(all[tier], id, id, name)
             end
         end
     end
@@ -1843,7 +1755,7 @@ function addon:PreloadPetJournal(pets)
     C_PetJournal.SetAllPetTypesChecked(true)
 
     -- Iterate through all pets in the Pet Journal.
-    for index = 1, C_PetJournal:GetNumPets() do
+    for index = 1, C_PetJournal.GetNumPets() do
         -- Get the pet's ID and species.
         local id, species = C_PetJournal.GetPetInfoByIndex(index)
         -- Update the cache with the pet's information.
@@ -1920,18 +1832,19 @@ function addon:ClearSlot(slot)
 
     -- Check if the action is a mount
     if actionType == "spell" and id then  -- Ensure 'id' is not nil before proceeding
-        local spellName = C_Spell.GetSpellInfo(id)
+            local spellInfo = C_Spell.GetSpellInfo(id)
+            local spellName = spellInfo and spellInfo.name
         if C_Spell.IsSpellUsable(id) and IsSpellKnown(id) then
             -- Check if the spell is a mount
             local mountID = C_MountJournal.GetMountFromSpell(id)
             if mountID then
-				print(string.format("Skipping clear for mount %s in slot %d", spellName, slot))
+				-- print(string.format("Skipping clear for mount %s in slot %d", spellName, slot))
                 return -- Skip clearing this slot since it's a mount
             end
 
             -- Check if the spell is a hearthstone toy
             local toyName = C_ToyBox.GetToyInfo(id)
-            local _, isRandomHearthstoneLoaded = C_AddOns.IsAddOnLoaded("RandomHearth") -- Replace with the correct folder name
+            local isRandomHearthstoneLoaded = C_AddOns.IsAddOnLoaded("RandomHearth") -- Replace with the correct folder name
 
             if toyName and string.lower(toyName):find("hearthstone") then
                 if isRandomHearthstoneLoaded then
@@ -1942,12 +1855,12 @@ function addon:ClearSlot(slot)
 
     elseif actionType == "flyout" then
         -- For flyout spells, skip clearing the slot
-		print(string.format("Skipping clear for flyout in slot %d", slot))
+		-- print(string.format("Skipping clear for flyout in slot %d", slot))
         return
 
     elseif actionType == "summonmount" then
         -- Skip clearing the slot if it contains a "summonmount" action
-		print(string.format("Skipping clear for summonmount in slot %d", slot))
+		-- print(string.format("Skipping clear for summonmount in slot %d", slot))
         return
 
     elseif actionType == nil then
@@ -2048,7 +1961,7 @@ function addon:PlaceTalent(slot, id, link, count)
     count = count or ABP_PICKUP_RETRY_COUNT  -- Set the retry count if not provided.
 
     ClearCursor()  -- Ensure the cursor is cleared before picking up the talent.
-    PickupTalent(id)  -- Pick up the talent using its ID.
+    C_Spell.PickupSpell(id)  -- Talent spells are placed through the Retail spell API.
 
     if not CursorHasSpell() then  -- Check if the cursor successfully picked up the talent.
         if count > 0 then  -- If not, retry placing the talent after a short delay.
@@ -2070,6 +1983,10 @@ function addon:PlacePvpTalent(slot, id, link, count)
 
     ClearCursor()  -- Ensure the cursor is cleared before picking up the PvP talent.
     if type(id) == "number" then  -- Ensure that 'id' is a number.
+        if not PickupPvpTalent then
+            self:cPrintf(link, DEBUG .. L.msg_cant_place_spell, link)
+            return
+        end
         ClearCursor()  -- Ensure the cursor is cleared before picking up the PvP talent.
         ---@diagnostic disable-next-line
         PickupPvpTalent(id)  -- Pick up the PvP talent using its ID.
@@ -2142,7 +2059,7 @@ function addon:PlaceContainerItem(slot, bag, id, link, count)
     if not CursorHasItem() then  -- Check if the cursor successfully picked up the item.
         if count > 0 then  -- If not, retry placing the item after a short delay.
             self:ScheduleTimer(function()
-                self:PlaceContainerItem(slot, id, link, count - 1)
+                self:PlaceContainerItem(slot, bag, id, link, count - 1)
             end, ABP_PICKUP_RETRY_INTERVAL)
         else
             self:cPrintf(link, DEBUG .. L.msg_cant_place_item, link)  -- Print a debug message if retries are exhausted.
@@ -2211,8 +2128,8 @@ function GetActionName(slot)
 
     if actionType == "spell" then
         if id then
-            local name = C_Spell.GetSpellInfo(id)
-            return name
+            local spellInfo = C_Spell.GetSpellInfo(id)
+            return spellInfo and spellInfo.name
         end
 
     elseif actionType == "macro" then
@@ -2235,9 +2152,9 @@ function GetActionName(slot)
                 for i = 1, numSlots do
                     local spellID = GetFlyoutSlotInfo(flyoutID, i)
                     if spellID then
-                        local spellName = C_Spell.GetSpellInfo(spellID)
-                        if spellName then
-                            return spellName  -- Return the name of the first valid spell in the flyout
+                        local spellInfo = C_Spell.GetSpellInfo(spellID)
+                        if spellInfo then
+                            return spellInfo.name  -- Return the name of the first valid spell in the flyout
                         end
                     end
                 end
