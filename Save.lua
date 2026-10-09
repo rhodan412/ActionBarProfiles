@@ -2,6 +2,14 @@ local addonName, addon = ...
 ABP = ABP or {}
 local L = LibStub("AceLocale-3.0"):GetLocale(addonName)
 local DEBUG = "|cffff0000Debug:|r "
+local GetSpecialization = C_SpecializationInfo.GetSpecialization
+local GetSpecializationInfo = C_SpecializationInfo.GetSpecializationInfo
+local GetPvpTalentInfoByID = C_SpecializationInfo.GetPvpTalentInfoByID or _G.GetPvpTalentInfoByID
+local GetPvpTalentLink = C_SpecializationInfo.GetPvpTalentLink or _G.GetPvpTalentLink
+
+-- These globals are no longer exported by the Retail client, although macro
+-- indices still reserve slots 1-120 for account macros.
+local MAX_ACCOUNT_MACROS = _G.MAX_ACCOUNT_MACROS or 120
 
 -- Tries to guess a unique name for a new profile.
 -- If the provided name is not in use, it returns that name.
@@ -199,10 +207,10 @@ function addon:SaveActions(profile)
     for _, treeID in ipairs(configInfo.treeIDs) do
         local nodes = C_Traits.GetTreeNodes(treeID)
 
-        for _, nodeID in ipairs(nodes) do
+        for _, nodeID in ipairs(nodes or {}) do
             local nodeInfo = C_Traits.GetNodeInfo(configID, nodeID)
 
-            for _, entryID in pairs(nodeInfo.entryIDsWithCommittedRanks) do
+            for _, entryID in ipairs(nodeInfo and nodeInfo.entryIDsWithCommittedRanks or {}) do
                 local entryInfo = C_Traits.GetEntryInfo(configID, entryID)
 
                 ---@class TraitEntryInfo
@@ -214,7 +222,7 @@ function addon:SaveActions(profile)
 
                     ---@class TraitDefinitionInfo
                     ---@field spellID number
-                    if definitionInfo.spellID then
+                    if definitionInfo and definitionInfo.spellID then
                         local spellInfo = C_Spell.GetSpellInfo(definitionInfo.spellID)
                         if spellInfo and spellInfo.name then
                             local isFreeTalent = nodeInfo.currentRank > 0 and nodeInfo.ranksPurchased == 0 and not nodeInfo.canPurchaseRank
@@ -236,6 +244,22 @@ function addon:SaveActions(profile)
                             print("Warning: Unable to retrieve spell information for spellID:", definitionInfo.spellID)
                         end
                     end
+                elseif entryInfo and entryInfo.subTreeID then
+                    -- Hero talent choices are structural entries.  They select a
+                    -- sub-tree and intentionally have no definitionID or spellID.
+                    -- Preserve them so a profile can restore its hero specialization.
+                    talents[#talents + 1] = {
+                        nodeID = nodeInfo.ID,
+                        entryID = entryID,
+                        ranksPurchased = nodeInfo.ranksPurchased,
+                        maxRanks = nodeInfo.maxRanks,
+                        isSelectionNode = true,
+                        isSubTreeSelection = true,
+                        subTreeID = entryInfo.subTreeID,
+                        posX = nodeInfo.posX,
+                        posY = nodeInfo.posY,
+                        isFreeTalent = nodeInfo.currentRank > 0 and nodeInfo.ranksPurchased == 0 and not nodeInfo.canPurchaseRank,
+                    }
                 end
             end
         end
@@ -269,7 +293,7 @@ function addon:SaveActions(profile)
     local savedMacros = {}
 
     -- Check if the RandomHearth addon is loaded
-    local _, isRandomHearthstoneLoaded = C_AddOns.IsAddOnLoaded("RandomHearth")
+    local isRandomHearthstoneLoaded = C_AddOns.IsAddOnLoaded("RandomHearth")
 
     for slot = 1, ABP_MAX_ACTION_BUTTONS do
         local type, id, sub = GetActionInfo(slot)  -- Retrieve action info for the slot
