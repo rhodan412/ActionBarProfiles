@@ -1,0 +1,5 @@
+# Keep packaging rules and GitHub-only metadata trackable; Git archives omit them.
+!/.github/
+!/.github/**
+AGENTS.md
+.vscode/
