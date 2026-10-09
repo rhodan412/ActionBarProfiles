@@ -1,4 +1,40 @@
+12.1.0.0
+
+	**HIGHLIGHTS**
+		- Updated the addon for WoW Retail 12.1.0 so the Action Bars character-panel view and profile controls work with current specialization, talent, and macro APIs.
+		- Profiles now save and restore hero talent sub-tree choices along with class and specialization talents.
+		- Talent restoration now reapplies all saved ranks of multi-rank choice and bottom-of-tree talents, including talents such as Midnight.
+		- Shortened the delay between talent selections so a profile restores more quickly.
+		- Reduced routine chat spam from talent mismatches, choice switches, and special action-slot skips during restore.
+		- Fixed errors caused by talent entries without spell definitions and by missing macro-limit globals in Retail 12.1.0.
+		- Fixed a talent-restore Lua syntax error that prevented the addon from loading and left the Action Bars profile list blank.
+
+	ActionBarProfiles.lua
+		- Updated specialization lookups to the current Retail API so saved profiles and per-specialization defaults use the correct specialization. (2026.08.31)
+
+	ActionBarProfiles.toc
+		- Set the Retail interface number to 120100 and the addon version to 12.1.0.0 for this compatibility update. (2026.08.31)
+
+	GUI.lua
+		- Updated specialization lookups used by the Action Bars character-panel list and favorite/default profile controls for the Retail API. (2026.08.31)
+
+	Restore.lua
+		- Skip trait entries without definition IDs while preloading talents, preventing the Action Bars panel from failing to open on structural hero talent entries. (2026.08.31)
+		- Use fallback account and character macro limits when Retail no longer exports the old globals, preventing cache and macro restore errors. (2026.08.31)
+		- Compare and restore hero sub-tree selections before dependent talent nodes, then reset and rebuild the saved talent configuration in dependency order. (2026.08.31)
+		- Refresh choice-node state after selection and purchase all remaining saved ranks, restoring multi-rank and bottom-of-tree talents completely. (2026.08.31)
+		- Reduced the per-node talent restore delay to 0.02 seconds while keeping purchases ordered. (2026.08.31)
+		- Suppressed routine mismatch, choice-switch, and special action-slot skip debug messages during profile use. (2026.08.31)
+		- Corrected the talent-restore block's Lua syntax so Restore.lua loads and the character-panel profile list can populate. (2026.08.31)
+
+	Save.lua
+		- Updated specialization and PvP-talent API lookups for Retail 12.1.0 profile saving. (2026.08.31)
+		- Save hero sub-tree selection entries even when they have no spell definition, and retain purchased ranks for full talent restoration. (2026.08.31)
+		- Use a fallback account macro limit so account and character macro slots can be saved when the old global is unavailable. (2026.08.31)
+
+
 11.0.2.1b
+
 	- Fixed some general coding issues
 
 	ActionBarProfiles.lua
