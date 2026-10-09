@@ -1,4 +1,4 @@
-## Interface: 80200
+## Interface: 120100
 ## Title: Lib: S2k Factional Items
 ## Author: silencer2k@gmail.com
 ## Version: 1.0

@@ -1,4 +1,4 @@
-## Interface: 100205
+## Interface: 120100
 ## Title: Lib: LibTalentTree-1.0
 ## Notes: Library for retrieving class and spec talent tree information
 ## Author: Numy
