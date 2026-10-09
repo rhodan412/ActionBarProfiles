@@ -1,6 +1,8 @@
 local addonName, addon = ...
 ABP = ABP or {}
 local L = LibStub("AceLocale-3.0"):GetLocale(addonName)
+local GetSpecialization = C_SpecializationInfo.GetSpecialization
+local GetSpecializationInfo = C_SpecializationInfo.GetSpecializationInfo
 
 ---@class frame
 local frame = PaperDollActionBarProfilesPane
